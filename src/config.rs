@@ -21,7 +21,9 @@ game_context = "เกมแนวเนื้อเรื่อง (ผจญ�
 # ความถี่ตรวจหน้าจอในโหมด auto (มิลลิวินาที) ยิ่งมากยิ่งประหยัดเครื่อง
 poll_ms = 800
 # ระยะห่างขั้นต่ำระหว่างการเรียก API ในโหมด auto (มิลลิวินาที) กันโควตาฟรีเต็ม
-min_api_interval_ms = 4500
+min_api_interval_ms = 3500
+# โหมด auto: แม้ตรวจไม่พบว่าภาพเปลี่ยน ก็ยังอ่านกรอบซ้ำทุกกี่มิลลิวินาที (กันพลาดข้อความที่เปลี่ยนแต่จับไม่ได้)
+auto_recheck_ms = 3000
 
 # ขยายภาพก่อน OCR (2 = เท่าตัว) ช่วยให้อ่านตัวอักษรเล็กได้แม่นขึ้น (ใช้ 1-3)
 ocr_scale = 2
@@ -72,6 +74,7 @@ pub struct Config {
     pub game_context: String,
     pub poll_ms: u64,
     pub min_api_interval_ms: u64,
+    pub auto_recheck_ms: u64,
     pub ocr_scale: u32,
     pub overlay_seconds: u32,
     pub font_name: String,
@@ -89,7 +92,8 @@ impl Default for Config {
             model: "gemini-3.1-flash-lite".into(),
             game_context: String::new(),
             poll_ms: 800,
-            min_api_interval_ms: 4500,
+            min_api_interval_ms: 3500,
+            auto_recheck_ms: 3000,
             ocr_scale: 2,
             overlay_seconds: 12,
             font_name: "Leelawadee UI".into(),
@@ -132,6 +136,7 @@ pub fn load() -> Result<Config, String> {
     cfg.api_key = cfg.api_key.trim().to_string();
     cfg.ocr_scale = cfg.ocr_scale.clamp(1, 3);
     cfg.poll_ms = cfg.poll_ms.clamp(300, 10_000);
+    cfg.auto_recheck_ms = cfg.auto_recheck_ms.clamp(1_000, 60_000);
     cfg.overlay_seconds = cfg.overlay_seconds.clamp(2, 120);
     cfg.overlay_opacity = cfg.overlay_opacity.clamp(60, 255);
     cfg.font_size = cfg.font_size.clamp(12, 80);

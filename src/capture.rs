@@ -76,34 +76,78 @@ pub fn capture(x: i32, y: i32, w: i32, h: i32, scale: i32) -> Result<Frame, Stri
     }
 }
 
-/// สร้างตารางความสว่างหยาบ ๆ (บล็อก 16px) ไว้เทียบว่าภาพในกรอบเปลี่ยนไหม โดยไม่ต้อง OCR
-pub fn luma_grid(f: &Frame) -> (usize, usize, Vec<u8>) {
-    const B: usize = 16;
+/// สุ่มค่าความสว่างทุก 2 พิกเซล ไว้เทียบว่าข้อความในกรอบเปลี่ยนไหม (เบามาก ไม่ต้อง OCR)
+/// เทียบทีละพิกเซลแทนการเฉลี่ยเป็นบล็อก เพราะเส้นตัวอักษรบางมาก การเฉลี่ยจะกลืนการเปลี่ยนแปลงหายไป
+pub fn luma_sample(f: &Frame) -> Vec<u8> {
     let w = f.width as usize;
     let h = f.height as usize;
-    let gw = (w / B).max(1);
-    let gh = (h / B).max(1);
-    let mut grid = vec![0u8; gw * gh];
-    for gy in 0..gh {
-        for gx in 0..gw {
-            let mut sum = 0u32;
-            let mut n = 0u32;
-            let mut y = gy * B;
-            while y < ((gy + 1) * B).min(h) {
-                let mut x = gx * B;
-                while x < ((gx + 1) * B).min(w) {
-                    let i = (y * w + x) * 4;
-                    // ค่าประมาณความสว่าง (B + 2G + R) / 4
-                    sum += (f.bgra[i] as u32 + 2 * f.bgra[i + 1] as u32 + f.bgra[i + 2] as u32) / 4;
-                    n += 1;
-                    x += 4;
-                }
-                y += 4;
-            }
-            grid[gy * gw + gx] = if n > 0 { (sum / n) as u8 } else { 0 };
+    let mut out = Vec::with_capacity((w / 2 + 1) * (h / 2 + 1));
+    let mut y = 0;
+    while y < h {
+        let row = y * w * 4;
+        let mut x = 0;
+        while x < w {
+            let i = row + x * 4;
+            out.push(((f.bgra[i] as u32 + 2 * f.bgra[i + 1] as u32 + f.bgra[i + 2] as u32) / 4) as u8);
+            x += 2;
+        }
+        y += 2;
+    }
+    out
+}
+
+/// แปลงเป็นขาวดำและยืดคอนทราสต์ (ตัดสีสว่าง/มืดสุด 1% ทิ้ง) ช่วยให้ OCR อ่านตัวอักษรบนฉากหลังรก ๆ ได้ดีขึ้น
+pub fn enhance(f: &mut Frame) {
+    let mut hist = [0u32; 256];
+    let n = (f.bgra.len() / 4) as u32;
+    for px in f.bgra.chunks_exact_mut(4) {
+        let g = ((px[0] as u32 + 2 * px[1] as u32 + px[2] as u32) / 4) as u8;
+        px[0] = g;
+        px[1] = g;
+        px[2] = g;
+        hist[g as usize] += 1;
+    }
+    let cut = n / 100;
+    let mut lo = 0usize;
+    let mut acc = 0u32;
+    for (i, c) in hist.iter().enumerate() {
+        acc += *c;
+        if acc > cut {
+            lo = i;
+            break;
         }
     }
-    (gw, gh, grid)
+    let mut hi = 255usize;
+    acc = 0;
+    for i in (0..256).rev() {
+        acc += hist[i];
+        if acc > cut {
+            hi = i;
+            break;
+        }
+    }
+    if hi < lo + 16 {
+        hi = (lo + 16).min(255);
+        if hi <= lo {
+            return; // ภาพสีเดียวทั้งกรอบ ไม่มีอะไรให้ยืด
+        }
+    }
+    let range = (hi - lo) as i32;
+    for px in f.bgra.chunks_exact_mut(4) {
+        let v = ((px[0] as i32 - lo as i32) * 255 / range).clamp(0, 255) as u8;
+        px[0] = v;
+        px[1] = v;
+        px[2] = v;
+    }
+}
+
+/// กลับสีภาพ (ขาว<->ดำ) ใช้ลองอ่านอีกรอบเมื่ออ่านปกติไม่ได้ข้อความ
+pub fn invert(f: &mut Frame) {
+    for px in f.bgra.chunks_exact_mut(4) {
+        px[0] = 255 - px[0];
+        px[1] = 255 - px[1];
+        px[2] = 255 - px[2];
+    }
 }
 
 /// บันทึกเป็นไฟล์ BMP (ใช้ตอนตั้งกรอบด้วย F6)
